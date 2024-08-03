@@ -7,46 +7,48 @@ from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, Input, Lambda, LSTM, Reshape, MultiHeadAttention, LayerNormalization, Concatenate, Conv2D, Flatten, GRU, Bidirectional, Dropout
+from tensorflow.keras.layers import Dense, Input, Lambda, LSTM, Reshape, MultiHeadAttention, LayerNormalization, Concatenate, Conv2D, Flatten, GRU, Bidirectional, Dropout, TimeDistributed
 from tensorflow.keras.optimizers import Adam
 from collections import deque
 from IPython.display import clear_output
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from scipy.stats import entropy
+import networkx as nx
 
 class HyperAdvancedMultiAgentEnvironment(gym.Env):
-    def __init__(self, grid_size=(40, 40, 15), num_agents=20, num_goals=10, num_obstacles=40):
+    def __init__(self, grid_size=(50, 50, 20), num_agents=25, num_goals=12, num_obstacles=50):
         super().__init__()
         
         self.grid_size = grid_size
         self.num_agents = num_agents
         self.num_goals = num_goals
         self.num_obstacles = num_obstacles
-        self.max_steps = 2000
+        self.max_steps = 3000
         self.current_step = 0
         
-        self.action_space = spaces.Discrete(11)  # 10 directions + stay
+        self.action_space = spaces.Discrete(13)  # 12 directions + stay
         self.observation_space = spaces.Box(low=0, high=max(grid_size), 
-                                            shape=(len(grid_size) + 1 + num_agents * 7 + num_goals * 3 + len(self.weather_conditions) + len(self.time_of_day) + len(self.terrain_types) + len(self.event_types),), dtype=np.float32)
+                                            shape=(len(grid_size) + 1 + num_agents * 9 + num_goals * 3 + len(self.weather_conditions) + len(self.time_of_day) + len(self.terrain_types) + len(self.event_types) + len(self.resource_types),), dtype=np.float32)
         
-        self.weather_conditions = ['clear', 'rainy', 'foggy', 'windy', 'snowy', 'stormy', 'scorching', 'hailing']
+        self.weather_conditions = ['clear', 'rainy', 'foggy', 'windy', 'snowy', 'stormy', 'scorching', 'hailing', 'sandstorm', 'hurricane']
         self.current_weather = 'clear'
         self.weather_change_probability = 0.05
         
-        self.time_of_day = ['dawn', 'morning', 'noon', 'afternoon', 'evening', 'night', 'midnight']
+        self.time_of_day = ['dawn', 'morning', 'noon', 'afternoon', 'evening', 'night', 'midnight', 'twilight']
         self.current_time = 'dawn'
         
-        self.resource_types = ['food', 'water', 'fuel', 'medicine', 'tools', 'technology', 'rare_minerals', 'energy_crystals']
+        self.resource_types = ['food', 'water', 'fuel', 'medicine', 'tools', 'technology', 'rare_minerals', 'energy_crystals', 'alien_artifacts', 'cosmic_dust']
         self.resource_locations = {}
         
-        self.agent_roles = ['explorer', 'collector', 'defender', 'medic', 'engineer', 'scientist', 'diplomat', 'specialist']
+        self.agent_roles = ['explorer', 'collector', 'defender', 'medic', 'engineer', 'scientist', 'diplomat', 'specialist', 'saboteur', 'scout']
         self.agent_specializations = np.random.choice(self.agent_roles, size=num_agents)
         
-        self.terrain_types = ['normal', 'rocky', 'swamp', 'ice', 'desert', 'forest', 'mountain', 'lava', 'water']
+        self.terrain_types = ['normal', 'rocky', 'swamp', 'ice', 'desert', 'forest', 'mountain', 'lava', 'water', 'crystal', 'toxic', 'magnetic']
         self.terrain = np.random.choice(self.terrain_types, size=self.grid_size)
         
-        self.event_types = ['earthquake', 'volcano_eruption', 'meteor_shower', 'solar_flare', 'alien_contact']
+        self.event_types = ['earthquake', 'volcano_eruption', 'meteor_shower', 'solar_flare', 'alien_contact', 'time_anomaly', 'quantum_flux', 'dimensional_rift']
         self.current_events = []
         
         self.reset()
@@ -71,12 +73,14 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         self.agent_skills = [{role: random.randint(1, 5) for role in self.agent_roles} for _ in range(self.num_agents)]
         self.agent_inventory = [[] for _ in range(self.num_agents)]
         self.agent_morale = [100] * self.num_agents
+        self.agent_relationships = np.ones((self.num_agents, self.num_agents)) * 0.5  # Neutral relationships
         
         self._place_resources()
         self._place_traps()
         self._place_portals()
         self._place_base_camps()
         self._place_special_zones()
+        self._place_anomalies()
         
         self.current_events = []
         
@@ -90,7 +94,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
 
     def _place_resources(self):
         for r in self.resource_types:
-            self.resource_locations[r] = [self._random_position() for _ in range(10)]
+            self.resource_locations[r] = [self._random_position() for _ in range(12)]
 
     def _place_traps(self):
         self.traps = [self._random_position() for _ in range(self.num_obstacles // 3)]
@@ -98,19 +102,24 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             self.grid[pos] = -2
 
     def _place_portals(self):
-        self.portals = [self._random_position() for _ in range(5)]
+        self.portals = [self._random_position() for _ in range(6)]
         for pos in self.portals:
             self.grid[pos] = 2
 
     def _place_base_camps(self):
-        self.base_camps = [self._random_position() for _ in range(4)]
+        self.base_camps = [self._random_position() for _ in range(5)]
         for pos in self.base_camps:
             self.grid[pos] = 3
 
     def _place_special_zones(self):
-        self.special_zones = [self._random_position() for _ in range(3)]
+        self.special_zones = [self._random_position() for _ in range(4)]
         for pos in self.special_zones:
             self.grid[pos] = 4
+
+    def _place_anomalies(self):
+        self.anomalies = [self._random_position() for _ in range(3)]
+        for pos in self.anomalies:
+            self.grid[pos] = 5
 
     def step(self, actions):
         self.current_step += 1
@@ -147,6 +156,9 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             if self.agent_experience[i] >= 100:
                 self._level_up_agent(i)
             
+            # Update agent relationships
+            self._update_agent_relationships(i, new_pos)
+            
             rewards.append(reward)
             dones.append(new_pos in self.goals or self.agent_energy[i] <= 0 or self.agent_health[i] <= 0)
             infos.append({
@@ -172,9 +184,10 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             (0, 1, 0), (0, -1, 0),  # forward, backward
             (1, 0, 0), (-1, 0, 0),  # right, left
             (1, 1, 0), (-1, -1, 0),  # diagonal movements
-            (1, 0, 1), (-1, 0, -1)  # diagonal up/down
+            (1, 0, 1), (-1, 0, -1),  # diagonal up/down
+            (0, 1, 1), (0, -1, -1)  # diagonal forward/backward up/down
         ]
-        if action < 10:
+        if action < 12:
             new_pos = tuple(np.clip(old_pos[i] + directions[action][i], 0, self.grid_size[i]-1) for i in range(3))
         else:
             new_pos = old_pos
@@ -189,11 +202,13 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             return False
         terrain = self.terrain[pos]
         role = self.agent_specializations[agent_idx]
-        if terrain == 'mountain' and role not in ['explorer', 'specialist']:
+        if terrain == 'mountain' and role not in ['explorer', 'specialist', 'scout']:
             return False
-        if terrain == 'water' and role not in ['explorer', 'collector', 'specialist']:
+        if terrain == 'water' and role not in ['explorer', 'collector', 'specialist', 'scout']:
             return False
-        if terrain == 'lava' and role not in ['specialist']:
+        if terrain == 'lava' and role not in ['specialist', 'scout']:
+            return False
+        if terrain == 'toxic' and role not in ['specialist', 'scientist', 'scout']:
             return False
         return True
 
@@ -206,46 +221,52 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         morale_change = 0
 
         if pos in self.goals:
-            base_reward += 200
+            base_reward += 300
             energy_change -= 10
-            experience_gained += 100
-            morale_change += 20
+            experience_gained += 150
+            morale_change += 30
         elif pos in self.obstacles + self.dynamic_obstacles:
-            base_reward -= 20
-            energy_change -= 20
-            health_change -= 10
-            morale_change -= 5
-        elif pos in self.agents:
-            base_reward -= 10
-            energy_change -= 10
-            morale_change -= 2
-        elif pos in self.traps:
             base_reward -= 30
-            health_change -= 30
-            experience_gained += 10  # Learning from mistakes
+            energy_change -= 20
+            health_change -= 15
             morale_change -= 10
+        elif pos in self.agents:
+            base_reward -= 15
+            energy_change -= 10
+            morale_change -= 5
+        elif pos in self.traps:
+            base_reward -= 40
+            health_change -= 40
+            experience_gained += 15  # Learning from mistakes
+            morale_change -= 15
         elif pos in self.portals:
-            base_reward += 20
-            experience_gained += 20
-            morale_change += 5
-        elif pos in self.base_camps:
-            base_reward += 10
-            energy_change += 20
-            health_change += 20
+            base_reward += 30
+            experience_gained += 30
             morale_change += 10
+        elif pos in self.base_camps:
+            base_reward += 20
+            energy_change += 30
+            health_change += 30
+            morale_change += 20
         elif pos in self.special_zones:
-            base_reward += 50
-            experience_gained += 50
-            morale_change += 15
+            base_reward += 75
+            experience_gained += 75
+            morale_change += 25
+        elif pos in self.anomalies:
+            base_reward += random.randint(-100, 200)  # High risk, high reward
+            energy_change += random.randint(-50, 50)
+            health_change += random.randint(-50, 50)
+            experience_gained += 100
+            morale_change += random.randint(-30, 30)
         
         # Collect resources
         for r, locations in self.resource_locations.items():
             if pos in locations:
                 collection_bonus = 2 if self.agent_specializations[agent_idx] == 'collector' else 1
-                base_reward += 5 * collection_bonus
+                base_reward += 10 * collection_bonus
                 resources_collected[r] += 1 * collection_bonus
-                experience_gained += 5 * collection_bonus
-                morale_change += 2 * collection_bonus
+                experience_gained += 10 * collection_bonus
+                morale_change += 5 * collection_bonus
                 locations.remove(pos)
                 locations.append(self._random_position())
 
@@ -256,112 +277,149 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             experience_gained += 2
         elif role == 'defender':
             if any(np.linalg.norm(np.array(pos) - np.array(other_pos)) < 3 for other_pos in self.agents if other_pos != pos):
-                base_reward += 1  # Bonus for staying close to other agents
-                experience_gained += 1
+                base_reward += 2  # Bonus for staying close to other agents
+                experience_gained += 2
         elif role == 'medic':
             for i, other_pos in enumerate(self.agents):
                 if i != agent_idx and np.linalg.norm(np.array(pos) - np.array(other_pos)) < 2:
-                    self.agent_health[i] = min(100, self.agent_health[i] + 5)
-                    base_reward += 2
-                    experience_gained += 3
+                    self.agent_health[i] = min(100, self.agent_health[i] + 10)
+                    base_reward += 5
+                    experience_gained += 5
         elif role == 'engineer':
             if pos in self.obstacles:
                 self.obstacles.remove(pos)
                 self.grid[pos] = 0
-                base_reward += 10
-                experience_gained += 10
+                base_reward += 20
+                experience_gained += 20
         elif role == 'scientist':
-            if any(r in ['technology', 'rare_minerals', 'energy_crystals'] for r in resources_collected):
-                base_reward += 15
-                experience_gained += 15
+            if any(r in ['technology', 'rare_minerals', 'energy_crystals', 'alien_artifacts', 'cosmic_dust'] for r in resources_collected):
+                base_reward += 30
+                experience_gained += 30
         elif role == 'diplomat':
             if any(np.linalg.norm(np.array(pos) - np.array(other_pos)) < 2 for other_pos in self.agents if other_pos != pos):
-                base_reward += 2  # Bonus for close interaction
-                experience_gained += 2
+                base_reward += 3  # Bonus for close interaction
+                experience_gained += 3
         elif role == 'specialist':
-            base_reward += 1  # General bonus for specialists
+            base_reward += 2  # General bonus for specialists
+            experience_gained += 4
+        elif role == 'saboteur':
+            if pos in self.obstacles:
+                base_reward += 15
+                experience_gained += 15
+        elif role == 'scout':
+            base_reward += 0.2 * np.linalg.norm(np.array(pos) - np.array(old_pos))  # Reward for exploring
             experience_gained += 3
 
         # Weather effects
         if self.current_weather == 'rainy':
-            energy_change -= 2
+            energy_change -= 3
         elif self.current_weather == 'windy':
             if random.random() < 0.2:  # 20% chance to be pushed by wind
                 pos = old_pos
         elif self.current_weather == 'snowy':
-            energy_change -= 3
-        elif self.current_weather == 'stormy':
-            energy_change -= 5
-            health_change -= 5
-        elif self.current_weather == 'scorching':
             energy_change -= 4
+        elif self.current_weather == 'stormy':
+            energy_change -= 6
+            health_change -= 6
+        elif self.current_weather == 'scorching':
+            energy_change -= 5
             if 'water' not in resources_collected:
-                health_change -= 2
+                health_change -= 3
         elif self.current_weather == 'hailing':
-            health_change -= 3
-            energy_change -= 3
+            health_change -= 4
+            energy_change -= 4
+        elif self.current_weather == 'sandstorm':
+            energy_change -= 5
+            health_change -= 2
+        elif self.current_weather == 'hurricane':
+            energy_change -= 8
+            health_change -= 8
+            if random.random() < 0.4:  # 40% chance to be pushed
+                pos = old_pos
 
         # Time of day effects
         if self.current_time == 'night':
-            energy_change -= 2
-            if role != 'explorer':
-                base_reward -= 1
-        elif self.current_time == 'midnight':
             energy_change -= 3
-            health_change -= 1
-            if role not in ['explorer', 'specialist']:
+            if role not in ['explorer', 'scout']:
                 base_reward -= 2
+        elif self.current_time == 'midnight':
+            energy_change -= 4
+            health_change -= 2
+            if role not in ['explorer', 'specialist', 'scout']:
+                base_reward -= 3
+        elif self.current_time == 'twilight':
+            if role in ['explorer', 'scout']:
+                base_reward += 3
+                experience_gained += 3
 
         # Terrain effects
         terrain = self.terrain[pos]
         if terrain == 'rocky':
-            energy_change -= 2
-        elif terrain == 'swamp':
             energy_change -= 3
-            health_change -= 1
+        elif terrain == 'swamp':
+            energy_change -= 4
+            health_change -= 2
         elif terrain == 'ice':
             if random.random() < 0.3:  # 30% chance to slip
                 pos = old_pos
         elif terrain == 'desert':
-            energy_change -= 3
+            energy_change -= 4
             if 'water' not in resources_collected:
-                health_change -= 2
+                health_change -= 3
         elif terrain == 'forest':
-            if role == 'explorer':
-                base_reward += 2
+            if role in ['explorer', 'scout']:
+                base_reward += 3
         elif terrain == 'mountain':
-            energy_change -= 5
-            if role == 'explorer':
-                base_reward += 5
-                experience_gained += 5
+            energy_change -= 6
+            if role in ['explorer', 'specialist', 'scout']:
+                base_reward += 8
+                experience_gained += 8
         elif terrain == 'lava':
-            health_change -= 10
-            energy_change -= 10
+            health_change -= 15
+            energy_change -= 15
             if role == 'specialist':
+                base_reward += 30
+                experience_gained += 30
+        elif terrain == 'water':
+            energy_change -= 3
+            if role in ['explorer', 'collector', 'specialist', 'scout']:
+                base_reward += 5
+        elif terrain == 'crystal':
+            base_reward += 10
+            experience_gained += 10
+        elif terrain == 'toxic':
+            health_change -= 10
+            if role in ['specialist', 'scientist']:
                 base_reward += 20
                 experience_gained += 20
-        elif terrain == 'water':
-            energy_change -= 2
-            if role in ['explorer', 'collector']:
-                base_reward += 3
+        elif terrain == 'magnetic':
+            if random.random() < 0.2:  # 20% chance of equipment malfunction
+                energy_change -= 10
 
         # Event effects
         for event in self.current_events:
             if event == 'earthquake':
-                health_change -= 5
-                energy_change -= 5
+                health_change -= 8
+                energy_change -= 8
             elif event == 'volcano_eruption':
-                if terrain == 'mountain':
-                    health_change -= 20
-                    energy_change -= 20
+                if terrain in ['mountain', 'lava']:
+                    health_change -= 25
+                    energy_change -= 25
             elif event == 'meteor_shower':
-                if random.random() < 0.1:  # 10% chance of being hit
-                    health_change -= 30
+                if random.random() < 0.15:  # 15% chance of being hit
+                    health_change -= 40
             elif event == 'solar_flare':
-                energy_change -= 10
+                energy_change -= 15
             elif event == 'alien_contact':
-                experience_gained += 50
-                morale_change += 20
+                experience_gained += 100
+                morale_change += 30
+            elif event == 'time_anomaly':
+                experience_gained += random.randint(-50, 100)
+            elif event == 'quantum_flux':
+                base_reward += random.randint(-50, 100)
+            elif event == 'dimensional_rift':
+                if random.random() < 0.1:  # 10% chance of teleportation
+                    pos = self._random_position()
 
         # Skill-based modifications
         skill_level = self.agent_skills[agent_idx][role]
@@ -373,7 +431,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         # Distance-based reward
         goal_distances = [np.linalg.norm(np.array(pos) - np.array(goal)) for goal in self.goals]
         min_distance = min(goal_distances)
-        base_reward += 1 / (min_distance + 1)  # Avoid division by zero
+        base_reward += 2 / (min_distance + 1)  # Avoid division by zero
 
         return base_reward, energy_change, health_change, resources_collected, experience_gained, morale_change
 
@@ -385,14 +443,27 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
     def _move_dynamic_obstacles(self):
         for i, obs in enumerate(self.dynamic_obstacles):
             self.grid[obs] = 0
-            new_obs = self._get_new_position(obs, random.randint(0, 9), -1)  # -1 as agent_idx to ignore role restrictions
+            new_obs = self._get_new_position(obs, random.randint(0, 11), -1)  # -1 as agent_idx to ignore role restrictions
             self.dynamic_obstacles[i] = new_obs
             self.grid[new_obs] = -1
 
     def _trigger_random_events(self):
-        if random.random() < 0.05:  # 5% chance of a random event occurring
+        if random.random() < 0.08:  # 8% chance of a random event occurring
             self.current_events.append(random.choice(self.event_types))
         self.current_events = self.current_events[-3:]  # Keep only the 3 most recent events
+
+    def _update_agent_relationships(self, agent_idx, new_pos):
+        for other_idx, other_pos in enumerate(self.agents):
+            if agent_idx != other_idx:
+                distance = np.linalg.norm(np.array(new_pos) - np.array(other_pos))
+                if distance < 3:
+                    self.agent_relationships[agent_idx][other_idx] += 0.01
+                    self.agent_relationships[other_idx][agent_idx] += 0.01
+                elif distance > 10:
+                    self.agent_relationships[agent_idx][other_idx] -= 0.005
+                    self.agent_relationships[other_idx][agent_idx] -= 0.005
+                self.agent_relationships[agent_idx][other_idx] = np.clip(self.agent_relationships[agent_idx][other_idx], 0, 1)
+                self.agent_relationships[other_idx][agent_idx] = np.clip(self.agent_relationships[other_idx][agent_idx], 0, 1)
 
     def _get_obs(self):
         obs = []
@@ -403,6 +474,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         obs.extend(self.agent_energy)
         obs.extend(self.agent_health)
         obs.extend(self.agent_morale)
+        obs.extend([sum(agent_resources.values()) for agent_resources in self.agent_resources])
         for goal in self.goals:
             obs.extend(goal)
         weather_encoding = [self.current_weather == w for w in self.weather_conditions]
@@ -413,10 +485,12 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         obs.extend(terrain_encoding)
         event_encoding = [e in self.current_events for e in self.event_types]
         obs.extend(event_encoding)
+        resource_encoding = [sum(locations) for locations in self.resource_locations.values()]
+        obs.extend(resource_encoding)
         return np.array(obs, dtype=np.float32)
 
     def render(self, mode='human'):
-        fig = plt.figure(figsize=(15, 15))
+        fig = plt.figure(figsize=(20, 20))
         ax = fig.add_subplot(111, projection='3d')
         
         # Plot grid
@@ -450,6 +524,10 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         # Plot special zones
         special_zone_positions = np.array(self.special_zones)
         ax.scatter(special_zone_positions[:, 0], special_zone_positions[:, 1], special_zone_positions[:, 2], c='pink', s=100, label='Special Zones')
+        
+        # Plot anomalies
+        anomaly_positions = np.array(self.anomalies)
+        ax.scatter(anomaly_positions[:, 0], anomaly_positions[:, 1], anomaly_positions[:, 2], c='purple', s=100, label='Anomalies')
         
         # Plot resources
         for r, locations in self.resource_locations.items():
@@ -520,14 +598,14 @@ class HierarchicalAgent:
         self.action_size = action_size
         self.num_agents = num_agents
         self.high_level_policy = self._build_high_level_policy()
-        self.low_level_skills = [self._build_low_level_skill() for _ in range(7)]  # 7 different skills
+        self.low_level_skills = [self._build_low_level_skill() for _ in range(10)]  # 10 different skills
 
     def _build_high_level_policy(self):
         input_layer = Input(shape=(self.state_size,))
         x = Dense(256, activation='relu')(input_layer)
         x = Dense(256, activation='relu')(x)
         x = Dropout(0.2)(x)
-        output = Dense(7, activation='softmax')(x)  # 7 skills to choose from
+        output = Dense(10, activation='softmax')(x)  # 10 skills to choose from
         return Model(inputs=input_layer, outputs=output)
 
     def _build_low_level_skill(self):
@@ -541,12 +619,12 @@ class HierarchicalAgent:
     def act(self, state):
         state = np.reshape(state, [1, -1])
         skill_probs = self.high_level_policy.predict(state)[0]
-        chosen_skill = np.random.choice(7, p=skill_probs)
+        chosen_skill = np.random.choice(10, p=skill_probs)
         action_probs = self.low_level_skills[chosen_skill].predict(state)[0]
         return [np.random.choice(self.action_size, p=action_probs) for _ in range(self.num_agents)]
 
 class CommunicatingAgent:
-    def __init__(self, state_size, action_size, num_agents, message_size=15):
+    def __init__(self, state_size, action_size, num_agents, message_size=20):
         self.state_size = state_size
         self.action_size = action_size
         self.num_agents = num_agents
@@ -631,13 +709,13 @@ class AdvancedMultiAgentSystem:
         self.hierarchical_agent = HierarchicalAgent(state_size, action_size, num_agents)
         self.communicating_agents = [CommunicatingAgent(state_size, action_size, num_agents) for _ in range(num_agents)]
         self.curiosity_module = CuriosityDrivenExploration(state_size, action_size)
-        self.memory = deque(maxlen=200000)
-        self.batch_size = 128
+        self.memory = deque(maxlen=500000)
+        self.batch_size = 256
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
-        self.learning_rate = 0.001
+        self.epsilon_decay = 0.9995
+        self.learning_rate = 0.0005
         self.update_target_frequency = 1000
         self.train_frequency = 4
         self.step_counter = 0
@@ -651,7 +729,7 @@ class AdvancedMultiAgentSystem:
         meta_actions = self.meta_agent.act(state)
         hierarchical_actions = self.hierarchical_agent.act(state)
         communicating_actions = []
-        messages = np.zeros((self.num_agents, 15))  # Assuming message size of 15
+        messages = np.zeros((self.num_agents, 20))  # Assuming message size of 20
         for i, agent in enumerate(self.communicating_agents):
             action, message = agent.act(state, messages)
             communicating_actions.append(action)
@@ -685,7 +763,7 @@ class AdvancedMultiAgentSystem:
         
         # Update communicating agents
         for agent in self.communicating_agents:
-            agent.model.fit([states, np.zeros((len(states), self.num_agents, 15))], [actions, np.zeros((len(states), 15))], epochs=1, verbose=0)
+            agent.model.fit([states, np.zeros((len(states), self.num_agents, 20))], [actions, np.zeros((len(states), 20))], epochs=1, verbose=0)
         
         # Update curiosity module
         for state, action, next_state in zip(states, actions, next_states):
@@ -704,7 +782,7 @@ class AdvancedMultiAgentSystem:
                 action = self.act(state)
                 next_state, reward, done, _ = self.env.step(action)
                 curiosity_reward = self.curiosity_module.get_curiosity_reward(state, action, next_state)
-                total_reward += sum(reward) + curiosity_reward
+                total_reward += sum(reward) + sum(curiosity_reward)
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 
@@ -764,21 +842,21 @@ class AdvancedMultiAgentSystem:
     def plot_q_values(self):
         state = self.env.reset()
         q_values = self.meta_agent.model.predict(np.array([state]))[0]
-        sns.heatmap(q_values.reshape(self.num_agents, -1), annot=True, fmt=".2f", cmap="YlGnBu")
+        sns.heatmap(q_values.reshape(self.num_agents, -1), annot=False, cmap="YlGnBu")
         plt.title("Q-values")
         plt.xlabel("Action")
         plt.ylabel("Agent")
 
     def plot_agent_communication(self):
-        messages = np.random.rand(self.num_agents, 15)  # Placeholder for actual messages
-        sns.heatmap(messages, annot=True, fmt=".2f", cmap="YlOrRd")
+        messages = np.random.rand(self.num_agents, 20)  # Placeholder for actual messages
+        sns.heatmap(messages, annot=False, cmap="YlOrRd")
         plt.title("Agent Communication")
         plt.xlabel("Message Dimension")
         plt.ylabel("Agent")
 
     def plot_skill_usage(self):
-        skill_usage = np.random.rand(7)  # Placeholder for actual skill usage
-        plt.bar(range(7), skill_usage)
+        skill_usage = np.random.rand(10)  # Placeholder for actual skill usage
+        plt.bar(range(10), skill_usage)
         plt.title("Skill Usage")
         plt.xlabel("Skill")
         plt.ylabel("Usage Frequency")
@@ -796,8 +874,7 @@ def main():
     state_size = env.observation_space.shape[0]
     action_size = env.action_space.n
     agent_system = AdvancedMultiAgentSystem(env, num_agents, state_size, action_size)
-    agent_system.train(episodes=2000)
+    agent_system.train(episodes=5000)
 
 if __name__ == "__main__":
     main()
-        
