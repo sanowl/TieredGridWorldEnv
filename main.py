@@ -4,6 +4,10 @@ from gym import spaces
 import random
 import matplotlib.pyplot as plt
 from collections import deque
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.optimizers import Adam
 
 class EnhancedTieredGridWorldEnv(gym.Env):
     def __init__(self, grid_size=(5, 5), start=(0, 0), goals=[(4, 4)], obstacles=[(2, 2), (3, 3)]):
@@ -92,10 +96,6 @@ class DDQAgent:
         self.update_target_model()
 
     def _build_model(self):
-        from tensorflow.keras.models import Sequential
-        from tensorflow.keras.layers import Dense
-        from tensorflow.keras.optimizers import Adam
-
         model = Sequential()
         model.add(Dense(24, input_dim=self.state_size, activation='relu'))
         model.add(Dense(24, activation='relu'))
@@ -153,13 +153,13 @@ for e in range(num_episodes):
 plt.figure(figsize=(12, 5))
 
 plt.subplot(1, 2, 1)
-plt.plot(agent.memory)
+plt.plot([agent.memory[i][2] for i in range(len(agent.memory))])
 plt.xlabel('Episode')
 plt.ylabel('Total Reward')
 plt.title('Total Rewards per Episode')
 
 plt.subplot(1, 2, 2)
-plt.plot(agent.memory)
+plt.plot([len(agent.memory[i][0]) for i in range(len(agent.memory))])
 plt.xlabel('Episode')
 plt.ylabel('Steps')
 plt.title('Steps per Episode')
