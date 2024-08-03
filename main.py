@@ -7,13 +7,9 @@ from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, Input, Lambda, LSTM, Reshape, MultiHeadAttention, LayerNormalization
+from tensorflow.keras.layers import Dense, Input, Lambda, LSTM, Reshape, MultiHeadAttention, LayerNormalization, Concatenate
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import Huber
 from collections import deque
-import networkx as nx
-from scipy.stats import entropy
-import plotly.graph_objects as go
 from IPython.display import clear_output
 
 class HyperAdvancedMultiAgentEnvironment(gym.Env):
@@ -29,7 +25,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         
         self.action_space = spaces.Discrete(7)  # 6 directions + stay
         self.observation_space = spaces.Box(low=0, high=max(grid_size), 
-                                            shape=(10 + num_agents * 4,), dtype=np.float32)
+                                            shape=(len(grid_size) + 1 + num_agents * 3 + num_goals * 3 + len(self.weather_conditions),), dtype=np.float32)
         
         self.weather_conditions = ['clear', 'rainy', 'foggy', 'windy']
         self.current_weather = 'clear'
@@ -162,13 +158,17 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             self.grid[new_obs] = -1
 
     def _get_obs(self):
-        obs = np.array(self.grid_size + (self.current_step / self.max_steps,) + 
-                       tuple(sum(self.agents, ())) + tuple(self.agent_energy))
+        obs = []
+        obs.extend(self.grid_size)
+        obs.append(self.current_step / self.max_steps)
+        for agent in self.agents:
+            obs.extend(agent)
+        obs.extend(self.agent_energy)
         for goal in self.goals:
-            obs = np.concatenate((obs, goal))
+            obs.extend(goal)
         weather_encoding = [self.current_weather == w for w in self.weather_conditions]
-        obs = np.concatenate((obs, weather_encoding))
-        return obs
+        obs.extend(weather_encoding)
+        return np.array(obs, dtype=np.float32)
 
     def render(self, mode='human'):
         fig = plt.figure(figsize=(10, 10))
@@ -215,8 +215,8 @@ class MetaLearningAgent:
         x = MultiHeadAttention(num_heads=4, key_dim=64)(x, x)
         x = LayerNormalization()(x)
         x = LSTM(128)(x)
-        value = Dense(2)(x)  # Two objectives: reward and energy
-        advantage = Dense(self.action_size * self.num_agents * 2)(x)
+        value = Dense(1)(x)  # One objective: total value
+        advantage = Dense(self.action_size * self.num_agents)(x)
         output = Lambda(lambda x: x[0] + (x[1] - tf.reduce_mean(x[1], axis=1, keepdims=True)))([value, advantage])
         return Model(inputs=input_layer, outputs=output)
 
@@ -224,9 +224,16 @@ class MetaLearningAgent:
         self.meta_optimizer.apply_gradients(zip(task_gradients, self.model.trainable_variables))
 
     def adapt(self, states, actions, rewards, next_states, dones):
+        states = np.reshape(states, [-1, self.state_size])
+        next_states = np.reshape(next_states, [-1, self.state_size])
+        actions = np.reshape(actions, [-1])
+        rewards = np.reshape(rewards, [-1])
+        dones = np.reshape(dones, [-1])
+        
         with tf.GradientTape() as tape:
             q_values = self.model(states)
-            action_q_values = tf.gather(q_values, actions, batch_dims=1)
+            indices = tf.stack([tf.range(len(actions)), actions], axis=-1)
+            action_q_values = tf.gather_nd(q_values, indices)
             next_q_values = self.model(next_states)
             max_next_q_values = tf.reduce_max(next_q_values, axis=1)
             target_q_values = rewards + (1 - dones) * 0.99 * max_next_q_values
