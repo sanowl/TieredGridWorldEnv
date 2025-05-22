@@ -1,7 +1,6 @@
 import numpy as np
 import gym
 from gym import spaces
-import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
@@ -16,6 +15,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from scipy.stats import entropy
 import networkx as nx
+import secrets
 
 class HyperAdvancedMultiAgentEnvironment(gym.Env):
     def __init__(self, grid_size=(60, 60, 25), num_agents=30, num_goals=15, num_obstacles=60):
@@ -70,11 +70,11 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         self.agent_health = [100] * self.num_agents
         self.agent_resources = [{r: 0 for r in self.resource_types} for _ in range(self.num_agents)]
         self.agent_experience = [0] * self.num_agents
-        self.agent_skills = [{role: random.randint(1, 5) for role in self.agent_roles} for _ in range(self.num_agents)]
+        self.agent_skills = [{role: secrets.SystemRandom().randint(1, 5) for role in self.agent_roles} for _ in range(self.num_agents)]
         self.agent_inventory = [[] for _ in range(self.num_agents)]
         self.agent_morale = [100] * self.num_agents
         self.agent_relationships = np.ones((self.num_agents, self.num_agents)) * 0.5  # Neutral relationships
-        self.agent_leadership = [random.randint(1, 10) for _ in range(self.num_agents)]
+        self.agent_leadership = [secrets.SystemRandom().randint(1, 10) for _ in range(self.num_agents)]
         
         self._place_resources()
         self._place_traps()
@@ -90,7 +90,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
 
     def _random_position(self):
         while True:
-            pos = tuple(random.randint(0, dim-1) for dim in self.grid_size)
+            pos = tuple(secrets.SystemRandom().randint(0, dim-1) for dim in self.grid_size)
             if self.grid[pos] == 0:
                 return pos
 
@@ -134,8 +134,8 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         dones = []
         infos = []
 
-        if random.random() < self.weather_change_probability:
-            self.current_weather = random.choice(self.weather_conditions)
+        if secrets.SystemRandom().random() < self.weather_change_probability:
+            self.current_weather = secrets.choice(self.weather_conditions)
         self.current_time = self.time_of_day[self.current_step % len(self.time_of_day)]
 
         self._trigger_random_events()
@@ -230,7 +230,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             'portals': (30, 0, 30, 10),
             'base_camps': (20, 30, 30, 20),
             'special_zones': (75, 0, 75, 25),
-            'anomalies': (random.randint(-100, 200), random.randint(-50, 50), random.randint(-50, 50), random.randint(-30, 30)),
+            'anomalies': (secrets.SystemRandom().randint(-100, 200), secrets.SystemRandom().randint(-50, 50), secrets.SystemRandom().randint(-50, 50), secrets.SystemRandom().randint(-30, 30)),
             'hidden_treasures': (150, 0, 100, 40)
         }
 
@@ -275,15 +275,15 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
 
         weather_effects = {
             'rainy': (-3, 0),
-            'windy': (0, 0) if random.random() < 0.2 else (0, 0),
+            'windy': (0, 0) if secrets.SystemRandom().random() < 0.2 else (0, 0),
             'snowy': (-4, 0),
             'stormy': (-6, -6),
             'scorching': (-5, -3) if 'water' not in resources_collected else (-5, 0),
             'hailing': (-4, -4),
             'sandstorm': (-5, -2),
-            'hurricane': (-8, -8) if random.random() < 0.4 else (0, 0),
-            'tornado': (-10, -10) if random.random() < 0.5 else (0, 0),
-            'blizzard': (-7, -7) if random.random() < 0.3 else (0, 0)
+            'hurricane': (-8, -8) if secrets.SystemRandom().random() < 0.4 else (0, 0),
+            'tornado': (-10, -10) if secrets.SystemRandom().random() < 0.5 else (0, 0),
+            'blizzard': (-7, -7) if secrets.SystemRandom().random() < 0.3 else (0, 0)
         }
 
         if weather_effects.get(self.current_weather):
@@ -303,7 +303,7 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
         terrain_effects = {
             'rocky': (-3, 0),
             'swamp': (-4, -2),
-            'ice': (0, 0) if random.random() < 0.3 else (0, 0),
+            'ice': (0, 0) if secrets.SystemRandom().random() < 0.3 else (0, 0),
             'desert': (-4, -3) if 'water' not in resources_collected else (-4, 0),
             'forest': (3, 0) if self.agent_specializations[agent_idx] in ['explorer', 'scout'] else (0, 0),
             'mountain': (-6, 8) if self.agent_specializations[agent_idx] in ['explorer', 'specialist', 'scout'] else (-6, 0),
@@ -311,9 +311,9 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             'water': (-3, 5) if self.agent_specializations[agent_idx] in ['explorer', 'collector', 'specialist', 'scout'] else (-3, 0),
             'crystal': (10, 10),
             'toxic': (-10, 20) if self.agent_specializations[agent_idx] in ['specialist', 'scientist'] else (-10, 0),
-            'magnetic': (-10, 0) if random.random() < 0.2 else (0, 0),
-            'quantum': (0, 0) if random.random() < 0.1 else (0, 0),
-            'interdimensional': (0, 0) if random.random() < 0.05 else (0, 0)
+            'magnetic': (-10, 0) if secrets.SystemRandom().random() < 0.2 else (0, 0),
+            'quantum': (0, 0) if secrets.SystemRandom().random() < 0.1 else (0, 0),
+            'interdimensional': (0, 0) if secrets.SystemRandom().random() < 0.05 else (0, 0)
         }
 
         if terrain_effects.get(self.terrain[pos]):
@@ -324,12 +324,12 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
             event_effects = {
                 'earthquake': (-8, -8),
                 'volcano_eruption': (-25, -25) if self.terrain[pos] in ['mountain', 'lava'] else (0, 0),
-                'meteor_shower': (-40, 0) if random.random() < 0.15 else (0, 0),
+                'meteor_shower': (-40, 0) if secrets.SystemRandom().random() < 0.15 else (0, 0),
                 'solar_flare': (-15, 0),
                 'alien_contact': (100, 30),
-                'time_anomaly': (random.randint(-50, 100), 0),
-                'quantum_flux': (random.randint(-50, 100), 0),
-                'dimensional_rift': (0, 0) if random.random() < 0.1 else (0, 0),
+                'time_anomaly': (secrets.SystemRandom().randint(-50, 100), 0),
+                'quantum_flux': (secrets.SystemRandom().randint(-50, 100), 0),
+                'dimensional_rift': (0, 0) if secrets.SystemRandom().random() < 0.1 else (0, 0),
                 'AI_uprising': (50, 50) if self.agent_specializations[agent_idx] == 'hacker' else (-20, 0),
                 'cosmic_storm': (-20, -20) if self.agent_specializations[agent_idx] in ['scientist', 'specialist'] else (0, 0)
             }
@@ -379,13 +379,13 @@ class HyperAdvancedMultiAgentEnvironment(gym.Env):
     def _move_dynamic_obstacles(self):
         for i, obs in enumerate(self.dynamic_obstacles):
             self.grid[obs] = 0
-            new_obs = self._get_new_position(obs, random.randint(0, 13), -1)
+            new_obs = self._get_new_position(obs, secrets.SystemRandom().randint(0, 13), -1)
             self.dynamic_obstacles[i] = new_obs
             self.grid[new_obs] = -1
 
     def _trigger_random_events(self):
-        if random.random() < 0.08:
-            self.current_events.append(random.choice(self.event_types))
+        if secrets.SystemRandom().random() < 0.08:
+            self.current_events.append(secrets.choice(self.event_types))
         self.current_events = self.current_events[-3:]
 
     def _update_agent_relationships(self, agent_idx, new_pos):
@@ -666,7 +666,7 @@ class AdvancedMultiAgentSystem:
 
     def act(self, state):
         if np.random.rand() <= self.epsilon:
-            return [random.randrange(self.action_size) for _ in range(self.num_agents)]
+            return [secrets.SystemRandom().randrange(self.action_size) for _ in range(self.num_agents)]
         meta_actions = self.meta_agent.act(state)
         hierarchical_actions = self.hierarchical_agent.act(state)
         communicating_actions = []
@@ -687,7 +687,7 @@ class AdvancedMultiAgentSystem:
     def replay(self):
         if len(self.memory) < self.batch_size:
             return
-        minibatch = random.sample(self.memory, self.batch_size)
+        minibatch = secrets.SystemRandom().sample(self.memory, self.batch_size)
         states, actions, rewards, next_states, dones = zip(*minibatch)
         
         states = np.array(states)
@@ -754,7 +754,7 @@ class AdvancedMultiAgentSystem:
         elite_agents = [agent for _, agent in sorted(zip(fitnesses, self.evolutionary_population), reverse=True)[:10]]
         new_population = elite_agents.copy()
         while len(new_population) < 50:
-            parent1, parent2 = random.sample(elite_agents, 2)
+            parent1, parent2 = secrets.SystemRandom().sample(elite_agents, 2)
             child = self._crossover(parent1, parent2)
             child = self._mutate(child)
             new_population.append(child)
